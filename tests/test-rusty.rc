@@ -1,0 +1,15 @@
+{
+    "Host":        "irc.freenode.net",
+    "Port":        6697,
+    "Nick":        "rusty42",
+    "Channel":     "#inventropy",
+    "LocalAddr":   "",
+    "Owner":       "bluffinpuffin",
+    "Password":    "",
+    "CmdPrefix":   "!",
+    "GooglAPIKey": "TEST_GOOGL_API_KEY",
+    "VTAPIKey":    "TEST_VT_API_KEY",
+    "Ops":         {"test-op": true},
+    "Mocking":     {"test-mock": true},
+    "Authed":      {"test-authed": true}
+}

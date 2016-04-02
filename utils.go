@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 
+	irc "github.com/fluffle/goirc/client"
 	"golang.org/x/net/html"
 )
 
@@ -38,4 +40,12 @@ func get_title(node *html.Node) string {
 		}
 	}
 	return title
+}
+
+func SendMessage(conn *irc.Conn, msg string, handler UrlHandler) {
+	if &handler != nil {
+		conn.Privmsg(RC.Channel, fmt.Sprintf("[%s] %s", handler.Name(), msg))
+	} else {
+		conn.Privmsg(RC.Channel, msg)
+	}
 }

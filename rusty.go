@@ -6,7 +6,7 @@ import (
 	//"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
+	//"log"
 	"os"
 
 	"github.com/codegangsta/cli"
@@ -18,26 +18,8 @@ import (
 var CONFIG_FILE string
 var RC RustyConfig
 
-func ParseArgs(args []string) {
-	app := cli.NewApp()
-	app.Name = "rusty"
-	app.Usage = "Ol' rusty"
-	app.Version = "0.1a"
-	app.Commands = []cli.Command{
-		cli.Command{
-			Name:   "run",
-			Action: Connect,
-			Usage:  "Run ol' Rusty!",
-		},
-	}
-	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:        "config, C",
-			Usage:       "location of your configuration file",
-			Value:       GetConfigPath(),
-			Destination: &CONFIG_FILE,
-		},
-
+func GetFlags() []cli.Flag {
+	var flags = []cli.Flag{
 		// IRC config
 		cli.StringFlag{
 			Name:  "host, H",
@@ -48,6 +30,11 @@ func ParseArgs(args []string) {
 			Name:  "port, P",
 			Usage: "port of the IRC server",
 			Value: 6697,
+		},
+		cli.StringFlag{
+			Name:  "nick, n",
+			Usage: "nick of the bot",
+			Value: "rusty-r0b0t",
 		},
 		cli.StringFlag{
 			Name:  "channel, c",
@@ -65,40 +52,86 @@ func ParseArgs(args []string) {
 			Usage: "verbose output",
 		},
 	}
-	app.Before = func(c *cli.Context) error {
-		LoadConfig(c)
-		return nil
+	return flags
+}
+
+func SetupForRun(c *cli.Context) error {
+	LoadConfig(c)
+	RegisterHandlers()
+	return nil
+}
+
+func SetupApp(args []string) {
+	app := cli.NewApp()
+	app.Name = "rusty"
+	app.Usage = "Ol' rusty"
+	app.Version = "0.1a"
+	app.Commands = []cli.Command{
+		cli.Command{
+			Name:   "run",
+			Action: Connect,
+			Usage:  "Run ol' Rusty!",
+			Flags:  GetFlags(),
+			Before: SetupForRun,
+		},
+		cli.Command{
+			Name: "test",
+			Action: func(c *cli.Context) {
+				fmt.Printf(".")
+			},
+			Usage:  "For testing purposes",
+			Flags:  GetFlags(),
+			Before: SetupForRun,
+		},
+	}
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:        "config, C",
+			Usage:       "location of your configuration file",
+			Value:       GetConfigPath(),
+			Destination: &CONFIG_FILE,
+		},
 	}
 	app.Run(args)
 }
 
 func GetConfigPath() string {
-	return os.ExpandEnv("$HOME/.config/rusty-robot/rusty.rc")
+	temp_name := os.ExpandEnv("$HOME/.config/rusty-robot/rusty.rc")
+	if _, err := os.Stat(temp_name); err != nil {
+		temp_name = "/dev/null"
+	}
+	return temp_name
 }
 
 func LoadConfig(ctx *cli.Context) {
 	var contents []byte
 
-	fmt.Printf("Loading config %s...\n", CONFIG_FILE)
-
-	if _, err := os.Stat(CONFIG_FILE); err != nil {
-		log.Fatalf("Unable to load config file!\n%s\n\n", CONFIG_FILE)
-	}
-
-	contents = handle_err(ioutil.ReadFile(CONFIG_FILE)).([]byte)
-	err := json.Unmarshal(contents, &RC)
-	if err != nil {
-		log.Fatalf("%v\n", err)
+	if _, err := os.Stat(CONFIG_FILE); err != nil && CONFIG_FILE != "/dev/null" {
+		fmt.Printf("Unable to find config file. Resorting to defaults.\n")
+	} else {
+		contents = handle_err(ioutil.ReadFile(CONFIG_FILE)).([]byte)
+		err := json.Unmarshal(contents, &RC)
+		if err != nil && CONFIG_FILE != "/dev/null" {
+			fmt.Printf("Error reading config file (%s): %v.\n", CONFIG_FILE, err)
+		}
 	}
 
 	// Override config file values with CLI options
 
-	if &RC.Host == nil {
+	if &RC.Host == nil || ctx.IsSet("host") {
 		RC.Host = ctx.String("host")
 	}
 
-	if &RC.Port == nil {
+	if &RC.Port == nil || ctx.IsSet("port") {
 		RC.Port = ctx.Int("port")
+	}
+
+	if &RC.Nick == nil || ctx.IsSet("nick") {
+		RC.Nick = ctx.String("nick")
+	}
+
+	if &RC.Channel == nil || ctx.IsSet("channel") {
+		RC.Channel = ctx.String("channel")
 	}
 
 	if &RC.SSL == nil {
@@ -108,6 +141,8 @@ func LoadConfig(ctx *cli.Context) {
 	if &RC.Verbose == nil {
 		RC.Verbose = ctx.Bool("verbose")
 	}
+
+	RC.VTClient = govt.Client{Apikey: RC.VTAPIKey, Url: "https://www.virustotal.com/vtapi/v2/"}
 }
 
 func Connect(ctx *cli.Context) {
@@ -172,7 +207,5 @@ func Connect(ctx *cli.Context) {
 }
 
 func main() {
-	ParseArgs(os.Args)
-	RC.VTClient = govt.Client{Apikey: RC.VTAPIKey, Url: "https://www.virustotal.com/vtapi/v2/"}
-	RegisterHandlers()
+	SetupApp(os.Args)
 }

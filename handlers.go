@@ -46,9 +46,7 @@ func RegisterHandlers() {
 	}
 	s.Register(TitleHandler)
 
-	ImgurHandler = &ImgurUrlHandler{
-		UrlPattern: regexp.MustCompile(`https?://i.imgur.com/([a-zA-Z0-9]+)\.(jpg|jpeg|gif|gifv|png)`),
-	}
+	ImgurHandler = &ImgurUrlHandler{}
 	s.Register(ImgurHandler)
 }
 
@@ -61,9 +59,13 @@ func (u *UrlScanner) Register(h UrlHandler) {
 }
 
 func (u *UrlScanner) Handle(conn *irc.Conn, line *irc.Line, url string) {
+	fmt.Printf("starting...")
 	for _, h := range u.Handlers {
 		if h.CanHandle(url) {
+			fmt.Printf("YAY! \n%v\n", h.Name())
 			go h.Handle(conn, line, url)
+		} else {
+			fmt.Printf("Boo!\n%v\n", h.Name())
 		}
 	}
 }
@@ -71,6 +73,8 @@ func (u *UrlScanner) Handle(conn *irc.Conn, line *irc.Line, url string) {
 type UrlHandler interface {
 	CanHandle(url string) bool
 	Handle(conn *irc.Conn, line *irc.Line, url string)
+	Name() string
+	SendMessage(conn *irc.Conn, msg string)
 }
 
 // VTUrlHandler searches VirusTotal's database for a given URL, and if it isn't
@@ -89,8 +93,9 @@ func (v *VTUrlHandler) Handle(conn *irc.Conn, line *irc.Line, url string) {
 
 	if r.Positives > 0 {
 		v.Dangerous[url] = true
-		conn.Privmsg(RC.Channel, "(」ﾟﾛﾟ)｣ ) WATCH OUT! VIRUSTOTAL SAYS "+url+" IS BAD NEWS!")
-		conn.Privmsg(RC.Channel, "Permalink to scan results: "+r.Permalink)
+		v.SendMessage(conn, "(」ﾟﾛﾟ)｣ ) WATCH OUT! VIRUSTOTAL SAYS "+url+" IS BAD NEWS!")
+		v.SendMessage(conn, "Permalink to scan results: "+r.Permalink)
+
 	} else if r.Total == 0 {
 		RC.VTClient.ScanUrl(url)
 		time.AfterFunc(time.Second*45, func() {
@@ -98,11 +103,16 @@ func (v *VTUrlHandler) Handle(conn *irc.Conn, line *irc.Line, url string) {
 		})
 	} else {
 		v.Safe[url] = true
-		if TitleHandler.CanHandle(url) {
-			TitleHandler.Handle(conn, line, url)
-		}
-		//conn.Privmsg(RC.Channel, "( ͡° ͜ʖ ͡°) ) Me gusta...")
+		v.SendMessage(conn, "( ͡° ͜ʖ ͡°) ) Me gusta...")
 	}
+}
+
+func (v *VTUrlHandler) Name() string {
+	return "VirusTotal Scanner"
+}
+
+func (v *VTUrlHandler) SendMessage(conn *irc.Conn, msg string) {
+	SendMessage(conn, msg, v)
 }
 
 func (v *VTUrlHandler) GetVTReport(url string) *govt.UrlReport {
@@ -140,36 +150,35 @@ func (t *TitleUrlHandler) Handle(conn *irc.Conn, line *irc.Line, url string) {
 		}
 	}
 	if len(title) > 0 {
-		conn.Privmsg(RC.Channel, "(づ｡◕‿‿◕｡)づ ) "+title)
+		t.SendMessage(conn, "(づ｡◕‿‿◕｡)づ ) "+title)
 	}
 }
 
-type ImgurUrlHandler struct {
-	UrlPattern *regexp.Regexp
+func (t *TitleUrlHandler) Name() string {
+	return "Title Grabber"
 }
 
+func (t *TitleUrlHandler) SendMessage(conn *irc.Conn, msg string) {
+	SendMessage(conn, msg, t)
+}
+
+type ImgurUrlHandler struct{}
+
+var ImgurUrlPattern = regexp.MustCompile(`https?://i.imgur.com/([a-zA-Z0-9]+)\.(jpg|jpeg|gif|gifv|png|webm)`)
+
 func (i *ImgurUrlHandler) CanHandle(url string) bool {
-	if len(i.UrlPattern.FindString(url)) > 0 {
+	if len(ImgurUrlPattern.FindString(url)) > 0 {
 		return true
 	}
 	return false
 }
 
 func (i *ImgurUrlHandler) Handle(conn *irc.Conn, line *irc.Line, url string) {
-	//var im Image
-	parts := i.UrlPattern.FindStringSubmatch(url)
+	parts := ImgurUrlPattern.FindStringSubmatch(url)
 	id := parts[1]
 	img_json_url := fmt.Sprintf("https://api.imgur.com/3/image/%s", id)
-	/*
-		fmt.Printf("API URL: %s\n", img_json_url)
-		resp := handle_err(http.Get(img_json_url)).(*http.Response)
-		body := handle_err(GetRespBody(*resp)).([]byte)
-		fmt.Printf("Body:\n%s\n", body)
-	*/
 	body := i.GetImgData(img_json_url)
-	fmt.Printf("%s", body)
 	var im interface{}
-	//err := json.Unmarshal(body, &im)
 	err := json.Unmarshal(body, &im)
 	if err != nil {
 		log.Fatalf("%v", err)
@@ -178,13 +187,21 @@ func (i *ImgurUrlHandler) Handle(conn *irc.Conn, line *irc.Line, url string) {
 	r := im.(map[string]interface{})["data"].(map[string]interface{})
 	for k, v := range r {
 		if k == "title" && v != nil {
-			conn.Privmsg(RC.Channel, "(づ｡◕‿‿◕｡)づ ) "+v.(string))
+			i.SendMessage(conn, "(づ｡◕‿‿◕｡)づ ) "+v.(string))
 		}
 
-		if k == "nsfw" && v.(bool) {
-			conn.Privmsg(RC.Channel, "(」ﾟﾛﾟ)｣ ) WATCH OUT! IMGUR SAYS "+url+" IS NSFW!")
+		if k == "nsfw" && v != nil && v.(bool) {
+			i.SendMessage(conn, "(」ﾟﾛﾟ)｣ ) WATCH OUT! IMGUR SAYS "+url+" IS NSFW!")
 		}
 	}
+}
+
+func (i *ImgurUrlHandler) Name() string {
+	return "Imgur URL Handler"
+}
+
+func (i *ImgurUrlHandler) SendMessage(conn *irc.Conn, msg string) {
+	SendMessage(conn, msg, i)
 }
 
 func (i *ImgurUrlHandler) GetImgData(url string) []byte {
@@ -267,8 +284,8 @@ func handle_privmsg(conn *irc.Conn, line *irc.Line) {
 	}
 	// Handle mocking
 	if RC.Mocking[line.Nick] {
-		conn.Privmsg(RC.Channel, "Hey, everybody! "+line.Nick+" said something!")
-		conn.Privmsg(RC.Channel, line.Nick+": "+line.Text())
-		conn.Privmsg(RC.Channel, "Great job, "+line.Nick+"! ╭(ᐛ)و")
+		SendMessage(conn, "Hey, everybody! "+line.Nick+" said something!", nil)
+		SendMessage(conn, line.Nick+": "+line.Text(), nil)
+		SendMessage(conn, "Great job, "+line.Nick+"! ╭(ᐛ)و", nil)
 	}
 }
